@@ -4,15 +4,21 @@ __author__ = 'leohuang'
 __date__ = '2016/3/2'
 __version__ = '0.1-dev'
 
-import urllib
-import rsa
-import re
+import sys
 import binascii
 import hashlib
+import re
 import base64
-import requests
+import logging
 from pprint import pprint
-import tea
+from urllib.parse import urlencode
+
+import rsa
+import requests
+
+from . import tea
+
+logger = logging.getLogger(__name__)
 
 class QQ_Login:
     """
@@ -21,13 +27,13 @@ class QQ_Login:
     算法和实现参考：/ptlogin/ver/10151/js/c_login_1.js
     参考登陆组件：http://ui.ptlogin2.qq.com/cgi-bin/login?hide_title_bar=0&low_login=0&qlogin_auto_login=1&no_verifyimg=1&link_target=blank&appid=636014201&target=self&s_url=http%3A//www.qq.com/qq2012/loginSuccess.htm
     """
-    ## RSA info
+    # RSA info
     rsaE = "F20CE00BAE5361F8FA3AE9CEFA495362FF7DA1BA628F64A347F0A8C012BF0B254A30CD92ABFFE7A6EE0DC424CB6166F8819EFA5BCCB20EDFB4AD02E412CCF579B1CA711D55B8B0B3AEB60153D5E0693A2A86F3167D7847A0CB8B00004716A9095D9BADC977CBB804DBDCBA6029A9710869A453F27DFDDF83C016D928B3CBF4C7"
     rsaN = int("3", 16)
     rsaPublickey = int(rsaE, 16)
     rsaKey = rsa.PublicKey(rsaPublickey, rsaN)
 
-    ## default qq info
+    # default qq info
     appid = 636014201
     action = '2-0-1456213685600'
     urlRaw = "http://ui.ptlogin2.qq.com/cgi-bin/login"
@@ -44,23 +50,22 @@ class QQ_Login:
         self.pt_verifysession_v1 = ""
 
     def run(self):
-
         sig_flag, sig_msg = self.get_signature()
         if sig_flag:
             check_flag, check_msg = self.check_login()
             if check_flag:
                 login_flag, login_msg = self.login()
                 if login_flag:
-                    print "User %s login Ok, nickname: %s" %(self.uin, self.nick)
-                    print "Cookie info:"
+                    logger.info("User %s login Ok, nickname: %s" % (self.uin, self.nick))
+                    logger.info("Cookie info:")
                     for c in self.session.cookies:
-                        print c
+                        logger.info(c)
                 else:
-                    print login_msg
+                    logger.info(login_msg)
             else:
-                print check_msg
+                logger.info(check_msg)
         else:
-            print sig_msg
+            logger.info(sig_msg)
 
     def get_signature(self):
         """
@@ -71,11 +76,11 @@ class QQ_Login:
             "appid": self.appid,
             "s_url": self.urlSuccess,
         }
-        params = urllib.urlencode(params)
-        url = "%s?%s" %(self.urlRaw, params)
+        params = urlencode(params)
+        url = "%s?%s" % (self.urlRaw, params)
         r = self.session.get(url)
         if 200 != r.status_code:
-            error_msg = "[Get signature error] %s %s" %(r.status_code, url)
+            error_msg = "[Get signature error] %s %s" % (r.status_code, url)
             return [False, error_msg]
         else:
             self.login_sig = self.session.cookies['pt_login_sig']
@@ -100,18 +105,17 @@ class QQ_Login:
             "login_sig": self.login_sig,
             "u1": self.urlSuccess,
         }
-        params = urllib.urlencode(params)
-        url = "%s?%s" %(self.urlCheck, params)
+        params = urlencode(params)
+        url = "%s?%s" % (self.urlCheck, params)
         r = self.session.get(url)
         if 200 != r.status_code:
-            error_msg = "[Get verifycode error] %s %s" %(r.status_code, url)
+            error_msg = "[Get verifycode error] %s %s" % (r.status_code, url)
             return [False, error_msg]
         else:
-            #print r.text
             v = re.findall('\'(.*?)\'', r.text)
             self.check_code = v[0]
             if self.check_code != '0':
-                error_msg = "[Verifycode not 0] %s %s" %(self.check_code, url)
+                error_msg = "[Verifycode not 0] %s %s" % (self.check_code, url)
                 return [False, error_msg]
             self.verifycode = v[1]
             self.salt = v[2]
@@ -155,17 +159,17 @@ class QQ_Login:
             'daid': 5,
             'login_sig': self.login_sig,
         }
-        params = urllib.urlencode(params)
-        url = "%s?%s" %(self.urlLogin, params)
+        params = urlencode(params)
+        url = "%s?%s" % (self.urlLogin, params)
         r = self.session.get(url)
         if 200 != r.status_code:
-            error_msg = "[Login error] %s %s" %(r.status_code, url)
+            error_msg = "[Login error] %s %s" % (r.status_code, url)
             return [False, error_msg]
         else:
             #print r.text
             v = re.findall('\'(.*?)\'', r.text)
             if v[0] != '0':
-                error_msg = "[Login Faild] %s %s" %(url, v[4])
+                error_msg = "[Login Faild] %s %s" % (url, v[4])
                 return [False, error_msg]
             self.nick = v[5]
             return [True, ""]
@@ -178,22 +182,23 @@ class QQ_Login:
         # """
         salt = salt.replace(r'\x', '')
         e = self.fromhex(salt)
+        pwd = pwd.encode()
         md5_pwd = o = self.tx_md5(pwd)
         r = hashlib.md5(pwd).digest()
         p = self.tx_md5( r + e )
         a = rsa.encrypt(r, self.rsaKey)
-        rsaData = a = binascii.b2a_hex(a)
+        rsaData = a = binascii.b2a_hex(a).decode()
 
         # rsa length
-        s = self.hexToString( len(a)/2 )
+        s = self.hexToString( len(a)//2 )
         s = s.zfill(4)
 
         # verifycode先转换为大写，然后转换为bytes
         verifycodeLen = hex(len(verifycode)).replace(r"0x","").zfill(4)
-        l = binascii.b2a_hex( verifycode.upper() )
+        l = binascii.b2a_hex(verifycode.upper().encode()).decode()
 
         # verifycode length
-        c = self.hexToString( len(l)/2 )
+        c = self.hexToString( len(l)//2 )
         c = c.zfill(4)
 
         # TEA: KEY:p, s+a+ TEA.strToBytes(e) + c +l
@@ -226,10 +231,11 @@ class QQ_Login:
         return bytes(bytearray.fromhex(s))
 
 
-uin = "qq号码"
-pwd = "qq密码"
-qlogin = QQ_Login(uin, pwd)
-#qlogin.get_signature()
-#qlogin.check_login()
-#qlogin.login()
-qlogin.run()
+if __name__ == '__main__':
+    uin = "qq账号"
+    pwd = "qq密码"
+    qlogin = QQ_Login(uin, pwd)
+    #qlogin.get_signature()
+    #qlogin.check_login()
+    #qlogin.login()
+    qlogin.run()
