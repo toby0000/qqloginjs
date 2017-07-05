@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 import rsa
 import requests
 
-from . import tea
+import tea
 
 logger = logging.getLogger(__name__)
 
